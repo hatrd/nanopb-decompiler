@@ -1,4 +1,16 @@
 import enum
+import sys
+import importlib
+
+module_name = "common_0_3_x"
+
+# for dev, reload module
+if module_name in sys.modules:
+    importlib.reload(sys.modules[module_name])
+    print("reload")
+else:
+    __import__(module_name)
+    print("import")
 
 from common_0_3_x import *
 

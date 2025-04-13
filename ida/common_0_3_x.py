@@ -25,25 +25,49 @@ class Decompiler030(Decompiler):
             self.ida_get_field_bits = ida_bytes.get_32bit
 
         if is_64bit:
-            ptr_fmt = "Q"
+            ptr_fmt = "Q"  # 64-bit pointer
         else:
-            ptr_fmt = "I"
+            ptr_fmt = "I"  # 32-bit pointer
         
-        self.pb_field_fmt = f"<{size_fmt}B{size_fmt}{size_fmt.lower()}{size_fmt}{size_fmt}{ptr_fmt}"
+        # Format follows struct definition
+        # I: unsigned int (4 bytes)
+        # B: unsigned char (1 byte)
+        # xxx: 3 padding bytes
+        # I: unsigned int data_offset (4 bytes)
+        # i: signed int size_offset (4 bytes)
+        # I: unsigned int data_size (4 bytes)
+        # I: unsigned int array_size (4 bytes)
+        # ptr_fmt: pointer (4 or 8 bytes)
+        self.pb_field_fmt = f"<IBxxxIiII{ptr_fmt}"
         self.pb_field_size = struct.calcsize(self.pb_field_fmt)
+        
+        print(f"Structure size: {self.pb_field_size} bytes")
     
     def parse_message(self, ea : int):
         fields = []
+        print(f"Parsing message at address: 0x{ea:X}")
 
         while True:
             data = ida_bytes.get_bytes(ea, self.pb_field_size)
-
-            tag, field_type, data_offset, size_offset, data_size, array_size, extra = struct.unpack(self.pb_field_fmt, data)
+            
+            # fmt: <IBxxxIiII{ptr_fmt}>
+            # corresponds to: tag, type, (padding), data_offset, size_offset, data_size, array_size, ptr
+            tag, field_type_raw, data_offset, size_offset, data_size, array_size, extra = struct.unpack(self.pb_field_fmt, data)
+            
+            # Debug output
+            print(f"Raw data: addr=0x{ea:X}, tag={tag}, type=0x{field_type_raw:02X}, data_offset={data_offset}, size_offset={size_offset}, data_size={data_size}, array_size={array_size}, ptr=0x{extra:X}")
+            
             if tag == 0:
                 # indicates the end of the array
+                print("Found tag=0, ending parse")
                 break
             
-            field_type = self.stype(field_type & 0b1111)
+            # Extract type, repeat rule and allocation type from type field
+            field_type = self.stype(field_type_raw & 0b1111)
+            repeat_rule = RepeatRule((field_type_raw >> 4) & 0b11)
+            allocation_type = AllocationType((field_type_raw >> 6) & 0b11)
+            
+            print(f"Parsed: type={field_type.name}, repeat_rule={repeat_rule.name}, allocation_type={allocation_type.name}")
 
             if extra == 0:
                 extra = None
@@ -83,12 +107,11 @@ class Decompiler030(Decompiler):
                         extra += 1
                     extra = s
                         
-
             field = FieldInfo(
                 tag,
                 field_type,
-                RepeatRule((field_type >> 4) & 0b11),
-                AllocationType((field_type >> 6) & 0b11),
+                repeat_rule,
+                allocation_type,
                 data_offset, size_offset, data_size, array_size, extra)
             
             print(field)
